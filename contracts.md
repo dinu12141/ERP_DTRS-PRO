@@ -1,7 +1,7 @@
-# Acumatica Cloud ERP - API Contracts & Integration Plan
+# DTRS PRO - API Contracts & Integration Plan
 
 ## Overview
-This document defines the API contracts, data models, and integration strategy for the Acumatica Cloud ERP clone backend implementation.
+This document defines the API contracts, data models, and integration strategy for the DTRS PRO backend implementation.
 
 ---
 
@@ -18,16 +18,16 @@ This document defines the API contracts, data models, and integration strategy f
 - **Inventory**: 4 inventory items
 - **KPIs**: Dashboard metrics
 
-All mock data will be replaced with actual MongoDB queries via FastAPI endpoints.
+All mock data will be replaced with actual Firestore queries via FastAPI endpoints.
 
 ---
 
-## 2. Database Schema (MongoDB Collections)
+## 2. Database Schema (Firestore Collections)
 
 ### 2.1 Partners Collection
 ```json
 {
-  "_id": "ObjectId",
+  "id": "document_id",
   "partnerId": "P001",
   "name": "Summit Roofing Solutions",
   "type": "Roofing Partner",
@@ -54,7 +54,7 @@ All mock data will be replaced with actual MongoDB queries via FastAPI endpoints
 ### 2.2 Contacts Collection
 ```json
 {
-  "_id": "ObjectId",
+  "id": "document_id",
   "contactId": "C001",
   "partnerId": "P001",
   "firstName": "John",
@@ -71,7 +71,7 @@ All mock data will be replaced with actual MongoDB queries via FastAPI endpoints
 ### 2.3 Leads Collection
 ```json
 {
-  "_id": "ObjectId",
+  "id": "document_id",
   "leadId": "L001",
   "customerName": "Robert Johnson",
   "address": "234 Maple Dr, Denver, CO 80203",
@@ -96,7 +96,7 @@ All mock data will be replaced with actual MongoDB queries via FastAPI endpoints
 ### 2.4 Jobs Collection
 ```json
 {
-  "_id": "ObjectId",
+  "id": "document_id",
   "jobId": "J-2024-001",
   "customerName": "Lisa Anderson",
   "address": "123 Solar St, Denver, CO 80204",
@@ -135,7 +135,7 @@ All mock data will be replaced with actual MongoDB queries via FastAPI endpoints
 ### 2.5 Crews Collection
 ```json
 {
-  "_id": "ObjectId",
+  "id": "document_id",
   "crewId": "CR001",
   "name": "Alpha Crew",
   "lead": "Carlos Martinez",
@@ -153,7 +153,7 @@ All mock data will be replaced with actual MongoDB queries via FastAPI endpoints
 ### 2.6 Schedule Collection
 ```json
 {
-  "_id": "ObjectId",
+  "id": "document_id",
   "scheduleId": "SCH001",
   "jobId": "J-2024-002",
   "crewId": "CR002",
@@ -168,7 +168,7 @@ All mock data will be replaced with actual MongoDB queries via FastAPI endpoints
 ### 2.7 Invoices Collection
 ```json
 {
-  "_id": "ObjectId",
+  "id": "document_id",
   "invoiceId": "INV-2024-001",
   "jobId": "J-2024-004",
   "customerName": "Tom Bradley",
@@ -185,7 +185,7 @@ All mock data will be replaced with actual MongoDB queries via FastAPI endpoints
 ### 2.8 Inventory Collection
 ```json
 {
-  "_id": "ObjectId",
+  "id": "document_id",
   "sku": "PANEL-TESLA-400",
   "name": "Tesla Solar Panel 400W",
   "category": "Panels|Inverters|Batteries|Racking",

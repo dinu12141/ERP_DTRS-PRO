@@ -1,4 +1,4 @@
-// Mock data for Solar Company ERP System
+// Mock data for DTRS PRO System
 
 export const mockPartners = [
   {

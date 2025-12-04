@@ -1,0 +1,197 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.role == 'admin';
+    }
+    
+    function isManager() {
+      return isAuthenticated() && 
+        (request.auth.token.role == 'admin' || request.auth.token.role == 'manager');
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Users collection
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isManager();
+      allow create: if isAdmin();
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // Jobs collection
+    match /jobs/{jobId} {
+      allow read: if isAuthenticated();
+      allow create: if isManager();
+      allow update: if isManager();
+      allow delete: if isAdmin();
+      
+      // Job photos subcollection
+      match /photos/{photoId} {
+        allow read: if isAuthenticated();
+        allow write: if isManager();
+      }
+    }
+    
+    // Invoices collection
+    match /invoices/{invoiceId} {
+      allow read: if isAuthenticated() && (
+        isManager() || 
+        resource.data.customerId == request.auth.token.customerId ||
+        resource.data.partnerId == request.auth.token.partnerId
+      );
+      allow create, update: if isManager();
+      allow delete: if isAdmin();
+    }
+    
+    // Partners collection
+    match /partners/{partnerId} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
+    }
+    
+    // Leads collection
+    match /leads/{leadId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isManager();
+      allow delete: if isAdmin();
+    }
+    
+    // Schedule collection
+    match /schedule/{scheduleId} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
+    }
+    
+    // Crews collection
+    match /crews/{crewId} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
+    }
+    
+    // Vehicles collection
+    match /vehicles/{vehicleId} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
+    }
+    
+    // Inventory collections
+    match /inventory_items/{itemId} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
+    }
+    
+    match /inventory_bins/{binId} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
+    }
+    
+    // Portal documents
+    match /portal_documents/{docId} {
+      allow read: if isAuthenticated() && (
+        isManager() ||
+        resource.data.customerId == request.auth.token.customerId
+      );
+      allow create: if isManager();
+      allow update, delete: if isManager();
+    }
+    
+    // Payment intents
+    match /payment_intents/{intentId} {
+      allow read: if isAuthenticated() && (
+        isManager() ||
+        resource.data.customerId == request.auth.token.customerId
+      );
+      allow create: if isAuthenticated();
+      allow update: if isManager();
+    }
+    
+    // Notifications
+    match /notifications/{notificationId} {
+      allow read: if isOwner(resource.data.userId);
+      allow create: if isAuthenticated();
+      allow update: if isOwner(resource.data.userId);
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+    
+    // Automations
+    match /automations/{automationId} {
+      allow read: if isManager();
+      allow write: if isAdmin();
+    }
+    
+    // Automation logs
+    match /automation_logs/{logId} {
+      allow read: if isManager();
+      allow create: if isAuthenticated(); // System can create logs
+    }
+    
+    // Estimates
+    match /estimates/{estimateId} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
+    }
+    
+    // SKUs
+    match /skus/{skuId} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
+    }
+
+    // Technician Collections
+    match /tech_jsa/{jsaId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated(); // Technicians can create JSAs
+      allow update, delete: if isManager();
+    }
+
+    match /damage_scans/{scanId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated(); // Technicians can create damage scans
+      allow update, delete: if isManager();
+    }
+
+    match /detach_workflows/{workflowId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated(); // Technicians can create detach workflows
+      allow update, delete: if isManager();
+    }
+
+    match /reset_workflows/{workflowId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated(); // Technicians can create reset workflows
+      allow update, delete: if isManager();
+    }
+
+    // Job logs subcollection (for auto-logs from Cloud Functions)
+    match /jobs/{jobId}/logs/{logId} {
+      allow read: if isAuthenticated();
+      allow create: if true; // Cloud Functions can create logs
+      allow update, delete: if isManager();
+    }
+
+    // KPI Aggregations (read-only for authenticated users)
+    match /kpi_aggregations/{aggregationId} {
+      allow read: if isAuthenticated();
+      allow create: if true; // Cloud Functions can create
+      allow update, delete: if isAdmin();
+    }
+
+    // Compliance Reports (read-only for authenticated users)
+    match /compliance_reports/{reportId} {
+      allow read: if isAuthenticated();
+      allow create: if true; // Cloud Functions can create
+      allow update, delete: if isAdmin();
+    }
+  }
+}
+

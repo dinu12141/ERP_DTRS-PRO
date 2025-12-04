@@ -1,0 +1,28 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Tech photos - authenticated users can upload, all authenticated can read
+    match /tech-photos/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null 
+        && request.resource.size < 10 * 1024 * 1024 // 10MB max
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Job photos - authenticated users can upload, all authenticated can read
+    match /job-photos/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null 
+        && request.resource.size < 10 * 1024 * 1024 // 10MB max
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // General uploads - authenticated users only
+    match /uploads/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null 
+        && request.resource.size < 10 * 1024 * 1024;
+    }
+  }
+}
+

@@ -36,9 +36,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from app.routers import jobs
+from app.routers import jobs, partners, leads, crews, vehicles, dispatch, inventory, skus, estimates, invoices, auth, portals, stripe_payments, storage, reporting, automation, weather
 
 app.include_router(jobs.router)
+app.include_router(partners.router)
+app.include_router(leads.router)
+app.include_router(crews.router)
+app.include_router(vehicles.router)
+app.include_router(dispatch.router)
+app.include_router(inventory.router)
+app.include_router(skus.router)
+app.include_router(estimates.router)
+app.include_router(invoices.router)
+app.include_router(auth.router)
+app.include_router(portals.router)
+app.include_router(stripe_payments.router)
+app.include_router(storage.router)
+app.include_router(reporting.router)
+app.include_router(automation.router)
+app.include_router(weather.router)
 
 @app.get("/")
 async def root():

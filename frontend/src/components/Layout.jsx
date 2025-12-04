@@ -12,7 +12,15 @@ import {
   X,
   ChevronDown,
   Bell,
-  User
+  User,
+  Smartphone,
+  DollarSign,
+  BarChart3,
+  Zap,
+  UserCircle,
+  Building2,
+  Phone,
+  TrendingUp
 } from 'lucide-react';
 
 const Layout = ({ children }) => {
@@ -31,13 +39,40 @@ const Layout = ({ children }) => {
       ]
     },
     { path: '/jobs', label: 'Job Records', icon: Briefcase },
-    { path: '/dispatch', label: 'Operations', icon: Calendar },
-    { path: '/invoices', label: 'Invoicing', icon: FileText },
+    {
+      label: 'Operations',
+      icon: Calendar,
+      subItems: [
+        { path: '/operations/dispatch', label: 'Dispatch' },
+        { path: '/operations/crews', label: 'Crews' },
+        { path: '/operations/vehicles', label: 'Vehicles' }
+      ]
+    },
+    { path: '/field-app', label: 'Field App', icon: Smartphone },
     { path: '/inventory', label: 'Inventory', icon: Package },
+    {
+      label: 'Financial',
+      icon: DollarSign,
+      subItems: [
+        { path: '/financial/invoices', label: 'Invoices' },
+        { path: '/financial/estimates', label: 'Estimates' },
+        { path: '/financial/skus', label: 'SKUs' }
+      ]
+    },
+    {
+      label: 'Portals',
+      icon: UserCircle,
+      subItems: [
+        { path: '/portals/homeowner', label: 'Homeowner Portal' },
+        { path: '/portals/roofer', label: 'Roofer Portal' }
+      ]
+    },
+    { path: '/reporting', label: 'Reporting', icon: BarChart3 },
+    { path: '/automation', label: 'Automation Engine', icon: Zap },
     { path: '/settings', label: 'Settings', icon: Settings }
   ];
 
-  const [expandedMenu, setExpandedMenu] = useState('CRM');
+  const [expandedMenu, setExpandedMenu] = useState(null);
 
   const isActive = (path) => location.pathname === path;
 
@@ -53,7 +88,7 @@ const Layout = ({ children }) => {
         <div className="p-6 flex items-center justify-between border-b border-slate-700">
           {sidebarOpen && (
             <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
-              Cloud ERP
+              DTRS PRO
             </h1>
           )}
           <button
@@ -79,7 +114,7 @@ const Layout = ({ children }) => {
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <item.icon size={20} />
+                      <item.icon size={20} className="flex-shrink-0" />
                       {sidebarOpen && <span className="font-medium">{item.label}</span>}
                     </div>
                     {sidebarOpen && (
@@ -118,7 +153,7 @@ const Layout = ({ children }) => {
                       : 'text-gray-300 hover:bg-slate-700 hover:text-white'
                   } ${sidebarOpen ? '' : 'justify-center'}`}
                 >
-                  <item.icon size={20} />
+                  <item.icon size={20} className="flex-shrink-0" />
                   {sidebarOpen && <span className="font-medium">{item.label}</span>}
                 </Link>
               )}
