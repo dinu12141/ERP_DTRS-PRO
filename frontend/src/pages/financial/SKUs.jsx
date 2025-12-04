@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, query, orderBy } from 'firebase/firestore';
+import { db } from '../../config/firebase';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
@@ -7,10 +9,9 @@ import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Textarea } from '../../components/ui/textarea';
-import { Plus, Search, Edit, Trash2, Package, DollarSign } from 'lucide-react';
-import axios from 'axios';
-
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:8000';
+import { Plus, Search, Edit, Trash2, DollarSign } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContextFirebase';
+import { toast } from 'sonner';
 
 const SKUManager = () => {
   const [skus, setSkus] = useState([]);
@@ -28,39 +29,47 @@ const SKUManager = () => {
     category: '',
     isActive: true
   });
+  const { user } = useAuth();
 
   useEffect(() => {
-    loadSKUs();
-  }, [filterType]);
+    if (!user) return;
 
-  const loadSKUs = async () => {
-    try {
-      const params = new URLSearchParams();
-      if (filterType !== 'All') {
-        params.append('type', filterType.toLowerCase());
-      }
-      const response = await axios.get(`${API_BASE}/skus?${params}`);
-      setSkus(response.data);
-    } catch (error) {
-      console.error('Failed to load SKUs:', error);
-    }
-  };
+    const q = query(collection(db, 'skus'), orderBy('sku'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const skuData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setSkus(skuData);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      const skuData = {
+        ...formData,
+        unitPrice: Number(formData.unitPrice),
+        updatedAt: new Date().toISOString(),
+        updatedBy: user.uid
+      };
+
       if (editingSku) {
-        await axios.put(`${API_BASE}/skus/${editingSku.id}`, formData);
+        await updateDoc(doc(db, 'skus', editingSku.id), skuData);
+        toast.success('SKU updated successfully');
       } else {
-        await axios.post(`${API_BASE}/skus`, formData);
+        await addDoc(collection(db, 'skus'), {
+          ...skuData,
+          createdAt: new Date().toISOString(),
+          createdBy: user.uid
+        });
+        toast.success('SKU created successfully');
       }
       setIsDialogOpen(false);
       setEditingSku(null);
       resetForm();
-      loadSKUs();
     } catch (error) {
       console.error('Failed to save SKU:', error);
-      alert(error.response?.data?.detail || 'Failed to save SKU');
+      toast.error('Failed to save SKU');
     }
   };
 
@@ -80,12 +89,13 @@ const SKUManager = () => {
   };
 
   const handleDelete = async (skuId) => {
-    if (!window.confirm('Are you sure you want to deactivate this SKU?')) return;
+    if (!window.confirm('Are you sure you want to delete this SKU?')) return;
     try {
-      await axios.delete(`${API_BASE}/skus/${skuId}`);
-      loadSKUs();
+      await deleteDoc(doc(db, 'skus', skuId));
+      toast.success('SKU deleted');
     } catch (error) {
       console.error('Failed to delete SKU:', error);
+      toast.error('Failed to delete SKU');
     }
   };
 
@@ -108,7 +118,8 @@ const SKUManager = () => {
       sku.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
       sku.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (sku.description && sku.description.toLowerCase().includes(searchTerm.toLowerCase()));
-    return matchesSearch;
+    const matchesType = filterType === 'All' || sku.type === filterType.toLowerCase();
+    return matchesSearch && matchesType;
   });
 
   return (
@@ -185,7 +196,7 @@ const SKUManager = () => {
                     step="0.01"
                     min="0"
                     value={formData.unitPrice}
-                    onChange={(e) => setFormData({ ...formData, unitPrice: parseFloat(e.target.value) || 0 })}
+                    onChange={(e) => setFormData({ ...formData, unitPrice: e.target.value })}
                     required
                   />
                 </div>
@@ -272,7 +283,7 @@ const SKUManager = () => {
                 <div className="flex items-center gap-2">
                   <DollarSign size={16} className="text-green-600" />
                   <span className="text-lg font-bold text-gray-900">
-                    ${sku.unitPrice.toFixed(2)} / {sku.unit}
+                    ${Number(sku.unitPrice).toFixed(2)} / {sku.unit}
                   </span>
                 </div>
                 {sku.category && (
@@ -305,4 +316,3 @@ const SKUManager = () => {
 };
 
 export default SKUManager;
-

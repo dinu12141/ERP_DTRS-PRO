@@ -2,24 +2,24 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Calendar, momentLocalizer } from 'react-big-calendar';
 import moment from 'moment';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
-import { Badge } from '../../components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { Label } from '../../components/ui/label';
 import { Input } from '../../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Cloud, CloudRain, Sun, CloudSnow, AlertTriangle } from 'lucide-react';
-import axios from 'axios';
 import { toast } from 'sonner';
+import withDragAndDrop from 'react-big-calendar/lib/addons/dragAndDrop';
+import 'react-big-calendar/lib/addons/dragAndDrop/styles.css';
 
 const localizer = momentLocalizer(moment);
-const API_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
+const DnDCalendar = withDragAndDrop(Calendar);
 
-const DispatchCalendar = ({ schedule, crews, vehicles, jobs, onScheduleUpdate }) => {
+const DispatchCalendar = ({ schedule, crews, vehicles, jobs, onAddSchedule, onUpdateSchedule, onDeleteSchedule, date, view, onNavigate, onView }) => {
   const [events, setEvents] = useState([]);
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingEventId, setEditingEventId] = useState(null);
   const [formData, setFormData] = useState({
     jobId: '',
     crewId: '',
@@ -55,25 +55,134 @@ const DispatchCalendar = ({ schedule, crews, vehicles, jobs, onScheduleUpdate })
 
   const handleSelectSlot = useCallback(({ start, end }) => {
     setSelectedSlot({ start, end });
+    setEditingEventId(null);
     setFormData({
-      ...formData,
+      jobId: '',
+      crewId: '',
+      vehicleId: '',
+      type: 'survey',
       startTime: moment(start).format('HH:mm'),
       endTime: moment(end).format('HH:mm'),
     });
     setIsDialogOpen(true);
-  }, [formData]);
+  }, []);
 
-  // Note: Full drag-and-drop requires react-big-calendar dragAndDrop addon
-  // Current implementation supports click-to-create and click-to-view
-  // Events can be edited via the edit button in the list view
+  const handleSelectEvent = useCallback((event) => {
+    const { entry } = event.resource;
+    setEditingEventId(entry.id);
+    setFormData({
+      jobId: entry.jobId,
+      crewId: entry.crewId,
+      vehicleId: entry.vehicleId || 'unassigned',
+      type: entry.type,
+      startTime: entry.startTime,
+      endTime: entry.endTime,
+    });
+    // Set selectedSlot for date reference in handleSubmit
+    setSelectedSlot({ start: moment(entry.date).toDate() });
+    setIsDialogOpen(true);
+  }, []);
+
+  const handleDelete = async () => {
+    if (!editingEventId) return;
+    if (!window.confirm('Are you sure you want to delete this schedule?')) return;
+
+    try {
+      await onDeleteSchedule(editingEventId);
+      toast.success('Schedule deleted');
+      setIsDialogOpen(false);
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to delete schedule');
+    }
+  };
+
+  const checkCrewConflict = (crewId, date, startTime, endTime, excludeId = null) => {
+    const start = moment(`${date} ${startTime}`, 'YYYY-MM-DD HH:mm');
+    const end = moment(`${date} ${endTime}`, 'YYYY-MM-DD HH:mm');
+
+    const conflict = schedule.find(entry => {
+      if (entry.id === excludeId) return false; // Exclude current event being edited
+      if (entry.crewId !== crewId) return false; // Different crew
+      if (entry.date !== date) return false; // Different day
+
+      const entryStart = moment(`${entry.date} ${entry.startTime}`, 'YYYY-MM-DD HH:mm');
+      const entryEnd = moment(`${entry.date} ${entry.endTime}`, 'YYYY-MM-DD HH:mm');
+
+      // Check overlap
+      return (
+        start.isBetween(entryStart, entryEnd, null, '[)') ||
+        end.isBetween(entryStart, entryEnd, null, '(]') ||
+        entryStart.isBetween(start, end, null, '[)') ||
+        entryEnd.isBetween(start, end, null, '(]')
+      );
+    });
+
+    return conflict;
+  };
+
+  const handleEventDrop = useCallback(async ({ event, start, end }) => {
+    try {
+      const date = moment(start).format('YYYY-MM-DD');
+      const startTime = moment(start).format('HH:mm');
+      const endTime = moment(end).format('HH:mm');
+
+      // Conflict Check
+      const conflict = checkCrewConflict(event.resource.entry.crewId, date, startTime, endTime, event.id);
+      if (conflict) {
+        toast.error(`Crew conflict: Already scheduled for Job ${conflict.jobId}`);
+        return;
+      }
+
+      await onUpdateSchedule(event.id, {
+        date,
+        startTime,
+        endTime
+      });
+      toast.success('Schedule updated');
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to update schedule');
+    }
+  }, [onUpdateSchedule, schedule]);
+
+  const handleEventResize = useCallback(async ({ event, start, end }) => {
+    try {
+      const date = moment(start).format('YYYY-MM-DD');
+      const startTime = moment(start).format('HH:mm');
+      const endTime = moment(end).format('HH:mm');
+
+      // Conflict Check
+      const conflict = checkCrewConflict(event.resource.entry.crewId, date, startTime, endTime, event.id);
+      if (conflict) {
+        toast.error(`Crew conflict: Already scheduled for Job ${conflict.jobId}`);
+        return;
+      }
+
+      await onUpdateSchedule(event.id, {
+        date,
+        startTime,
+        endTime
+      });
+      toast.success('Schedule updated');
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to update schedule');
+    }
+  }, [onUpdateSchedule, schedule]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
       const selectedDate = moment(selectedSlot.start).format('YYYY-MM-DD');
-      
+
       // Validate constraints
       const job = jobs.find(j => j.id === formData.jobId);
+      if (!job) {
+        toast.error('Invalid job selected');
+        return;
+      }
+
       if (formData.type === 'reset') {
         if (!job.detachCompletedAt || !job.roofingCompletedAt) {
           toast.error('Cannot schedule reset: Detach and roofing must be complete');
@@ -82,17 +191,24 @@ const DispatchCalendar = ({ schedule, crews, vehicles, jobs, onScheduleUpdate })
         const entryDate = moment(selectedDate);
         const detachDate = moment(job.detachCompletedAt);
         const roofingDate = moment(job.roofingCompletedAt);
-        
+
         if (entryDate.isBefore(detachDate) || entryDate.isBefore(roofingDate)) {
           toast.error('Cannot schedule reset before detach/roofing completion');
           return;
         }
       }
 
-      const scheduleEntry = {
+      // Conflict Check
+      const conflict = checkCrewConflict(formData.crewId, selectedDate, formData.startTime, formData.endTime, editingEventId);
+      if (conflict) {
+        toast.error(`Crew conflict: Already scheduled for Job ${conflict.jobId}`);
+        return;
+      }
+
+      const scheduleData = {
         jobId: formData.jobId,
         crewId: formData.crewId,
-        vehicleId: formData.vehicleId || null,
+        vehicleId: (formData.vehicleId === 'unassigned' || formData.vehicleId === '') ? null : formData.vehicleId,
         type: formData.type,
         date: selectedDate,
         startTime: formData.startTime,
@@ -100,12 +216,17 @@ const DispatchCalendar = ({ schedule, crews, vehicles, jobs, onScheduleUpdate })
         status: 'Scheduled',
       };
 
-      await axios.post(`${API_URL}/dispatch/schedule`, scheduleEntry);
-      toast.success('Schedule created successfully');
+      if (editingEventId) {
+        await onUpdateSchedule(editingEventId, scheduleData);
+        toast.success('Schedule updated successfully');
+      } else {
+        await onAddSchedule(scheduleData);
+        toast.success('Schedule created successfully');
+      }
       setIsDialogOpen(false);
-      onScheduleUpdate();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create schedule');
+      console.error(error);
+      toast.error(editingEventId ? 'Failed to update schedule' : 'Failed to create schedule');
     }
   };
 
@@ -159,31 +280,76 @@ const DispatchCalendar = ({ schedule, crews, vehicles, jobs, onScheduleUpdate })
   };
 
   return (
-    <div className="h-[600px]">
-      <Calendar
-        localizer={localizer}
-        events={events}
-        startAccessor="start"
-        endAccessor="end"
-        style={{ height: '100%' }}
-        onSelectSlot={handleSelectSlot}
-        selectable
-        onSelectEvent={(event) => {
-          // Handle event click - could open edit dialog
-          console.log('Event clicked:', event);
-        }}
-        eventPropGetter={eventStyleGetter}
-        components={{
-          event: CustomEvent,
-        }}
-        defaultView="week"
-        views={['month', 'week', 'day', 'agenda']}
-      />
+    <div className="flex h-[600px] gap-4">
+      {/* To-Do Tasks Sidebar */}
+      <div className="w-64 bg-white border rounded-lg shadow-sm flex flex-col">
+        <div className="p-4 border-b bg-gray-50 rounded-t-lg">
+          <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-orange-500" />
+            To-Do Tasks
+          </h3>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2 space-y-2">
+          {jobs.filter(j => j.workflowState === 'roofing_complete').length === 0 && (
+            <p className="text-sm text-gray-500 text-center py-4">No pending actions</p>
+          )}
+          {jobs.filter(j => j.workflowState === 'roofing_complete').map(job => (
+            <div key={job.id} className="p-3 bg-orange-50 border border-orange-100 rounded-lg text-sm">
+              <div className="flex justify-between items-start mb-1">
+                <span className="font-medium text-orange-900">Job {job.jobId || job.id}</span>
+                <span className="text-xs bg-orange-200 text-orange-800 px-1.5 py-0.5 rounded">Reset</span>
+              </div>
+              <p className="text-gray-600 text-xs mb-2">{job.address?.city || 'Unknown Location'}</p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full h-7 text-xs bg-white hover:bg-orange-100 border-orange-200"
+                onClick={() => {
+                  setFormData({
+                    ...formData,
+                    jobId: job.id,
+                    type: 'reset'
+                  });
+                  setIsDialogOpen(true);
+                }}
+              >
+                Schedule Reset
+              </Button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Calendar */}
+      <div className="flex-1">
+        <DnDCalendar
+          localizer={localizer}
+          events={events}
+          startAccessor="start"
+          endAccessor="end"
+          style={{ height: '100%' }}
+          onSelectSlot={handleSelectSlot}
+          selectable
+          onSelectEvent={handleSelectEvent}
+          onEventDrop={handleEventDrop}
+          onEventResize={handleEventResize}
+          resizable
+          eventPropGetter={eventStyleGetter}
+          components={{
+            event: CustomEvent,
+          }}
+          date={date}
+          view={view}
+          onNavigate={onNavigate}
+          onView={onView}
+          views={['month', 'week', 'day', 'agenda']}
+        />
+      </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Create Schedule Entry</DialogTitle>
+            <DialogTitle>{editingEventId ? 'Edit Schedule Entry' : 'Create Schedule Entry'}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -247,14 +413,14 @@ const DispatchCalendar = ({ schedule, crews, vehicles, jobs, onScheduleUpdate })
               <div>
                 <Label htmlFor="vehicleId">Vehicle (Optional)</Label>
                 <Select
-                  value={formData.vehicleId}
+                  value={formData.vehicleId || 'unassigned'}
                   onValueChange={(value) => setFormData({ ...formData, vehicleId: value })}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select vehicle" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="unassigned">None</SelectItem>
                     {vehicles.map((vehicle) => (
                       <SelectItem key={vehicle.id} value={vehicle.id}>
                         {vehicle.name} ({vehicle.maxPanelCapacity} panels)
@@ -295,11 +461,18 @@ const DispatchCalendar = ({ schedule, crews, vehicles, jobs, onScheduleUpdate })
                 </div>
               </div>
             )}
-            <div className="flex gap-2">
-              <Button type="submit">Create Schedule</Button>
-              <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
-                Cancel
-              </Button>
+            <div className="flex gap-2 justify-between">
+              <div className="flex gap-2">
+                <Button type="submit">{editingEventId ? 'Update' : 'Create'}</Button>
+                <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
+                  Cancel
+                </Button>
+              </div>
+              {editingEventId && (
+                <Button type="button" variant="destructive" onClick={handleDelete}>
+                  Delete
+                </Button>
+              )}
             </div>
           </form>
         </DialogContent>
@@ -309,4 +482,3 @@ const DispatchCalendar = ({ schedule, crews, vehicles, jobs, onScheduleUpdate })
 };
 
 export default DispatchCalendar;
-

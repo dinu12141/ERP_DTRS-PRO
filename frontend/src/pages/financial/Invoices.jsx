@@ -1,17 +1,17 @@
 import React, { useState, useEffect } from 'react';
+import { collection, onSnapshot, updateDoc, doc, addDoc, query, orderBy } from 'firebase/firestore';
+import { db } from '../../config/firebase';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Textarea } from '../../components/ui/textarea';
-import { Plus, Search, DollarSign, Calendar, FileText, Download, Eye, CreditCard } from 'lucide-react';
-import axios from 'axios';
+import { Plus, Search, DollarSign, Calendar, FileText, Download, Eye, CreditCard, Mail, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
-
-const API_BASE = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
+import { useAuth } from '../../contexts/AuthContextFirebase';
+import { useNotifications } from '../../contexts/NotificationContext';
 
 const Invoices = () => {
   const [invoices, setInvoices] = useState([]);
@@ -23,48 +23,21 @@ const Invoices = () => {
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState('');
+  const { user } = useAuth();
+  const { addNotification } = useNotifications();
 
   useEffect(() => {
-    loadInvoices();
-  }, [filterStatus]);
+    if (!user) return;
 
-  const loadInvoices = async () => {
-    try {
-      setLoading(true);
-      const params = new URLSearchParams();
-      if (filterStatus !== 'All') {
-        params.append('status', filterStatus.toLowerCase());
-      }
-      const response = await axios.get(`${API_BASE}/api/invoices?${params}`);
-      setInvoices(response.data);
-    } catch (error) {
-      console.error('Failed to load invoices:', error);
-      toast.error('Failed to load invoices');
-    } finally {
+    const q = query(collection(db, 'invoices'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const invoiceData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setInvoices(invoiceData);
       setLoading(false);
-    }
-  };
+    });
 
-  const handleGeneratePDF = async (invoiceId) => {
-    try {
-      await axios.post(`${API_BASE}/api/invoices/${invoiceId}/generate-pdf`);
-      toast.success('PDF generation requested. It will be available shortly.');
-      // Reload invoices to get updated PDF URL
-      setTimeout(() => loadInvoices(), 2000);
-    } catch (error) {
-      console.error('Failed to generate PDF:', error);
-      toast.error('Failed to generate PDF');
-    }
-  };
-
-  const handleDownloadPDF = (invoice) => {
-    if (invoice.pdfUrl) {
-      window.open(invoice.pdfUrl, '_blank');
-    } else {
-      toast.info('PDF not yet generated. Generating now...');
-      handleGeneratePDF(invoice.id);
-    }
-  };
+    return () => unsubscribe();
+  }, [user]);
 
   const handleRecordPayment = async () => {
     if (!selectedInvoice || paymentAmount <= 0) {
@@ -73,25 +46,186 @@ const Invoices = () => {
     }
 
     try {
-      const updatedInvoice = {
-        ...selectedInvoice,
-        paidAmount: (selectedInvoice.paidAmount || 0) + paymentAmount,
-        balanceDue: selectedInvoice.total - (selectedInvoice.paidAmount || 0) - paymentAmount,
-        paymentMethod: paymentMethod || 'Other',
-        paidDate: paymentAmount >= selectedInvoice.balanceDue ? new Date().toISOString() : selectedInvoice.paidDate,
-        status: paymentAmount >= selectedInvoice.balanceDue ? 'Paid' : 'Pending',
-      };
+      const newPaidAmount = (selectedInvoice.paidAmount || 0) + paymentAmount;
+      const newBalance = selectedInvoice.total - newPaidAmount;
+      const newStatus = newBalance <= 0.01 ? 'Paid' : 'Pending'; // Tolerance for float errors
 
-      await axios.put(`${API_BASE}/api/invoices/${selectedInvoice.id}`, updatedInvoice);
+      // 1. Record Payment Transaction
+      await addDoc(collection(db, 'payments'), {
+        invoiceId: selectedInvoice.id,
+        amount: paymentAmount,
+        method: paymentMethod || 'Other',
+        recordedBy: user.uid,
+        recordedAt: new Date().toISOString()
+      });
+
+      // 2. Update Invoice
+      await updateDoc(doc(db, 'invoices', selectedInvoice.id), {
+        paidAmount: newPaidAmount,
+        balanceDue: newBalance,
+        status: newStatus,
+        lastPaymentDate: new Date().toISOString()
+      });
+
+      addNotification({
+        type: 'success',
+        title: 'Payment Received',
+        message: `Payment of $${paymentAmount} received for Invoice ${selectedInvoice.invoiceNumber}.`,
+        link: `/financial/invoices`
+      });
+
       toast.success('Payment recorded successfully');
       setIsPaymentDialogOpen(false);
       setPaymentAmount(0);
       setPaymentMethod('');
-      loadInvoices();
+
+      // Close view dialog if open to refresh data visually (though real-time will handle it)
+      setIsViewDialogOpen(false);
     } catch (error) {
       console.error('Failed to record payment:', error);
       toast.error('Failed to record payment');
     }
+  };
+
+  const handleEmailInvoice = (invoice) => {
+    const subject = `Invoice ${invoice.invoiceNumber} from DTRS PRO`;
+    const body = `Dear ${invoice.customerName},\n\nPlease find attached invoice ${invoice.invoiceNumber} for $${invoice.total.toFixed(2)}.\n\nView and Pay online: https://dtrs-pro.web.app/pay/${invoice.id}\n\nThank you,\nDTRS PRO Team`;
+    window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
+  };
+
+  const handlePayOnline = (invoice) => {
+    // Mock Stripe Link
+    const mockStripeLink = `https://buy.stripe.com/test_mock_payment?client_reference_id=${invoice.id}&amount=${invoice.balanceDue}`;
+    window.open(mockStripeLink, '_blank');
+  };
+
+  const handlePrint = () => {
+    if (!selectedInvoice) return;
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error('Please allow popups to print');
+      return;
+    }
+
+    const htmlContent = `
+      <html>
+        <head>
+          <title>Invoice ${selectedInvoice.invoiceNumber}</title>
+          <style>
+            body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 40px; color: #333; }
+            .header { display: flex; justify-content: space-between; margin-bottom: 40px; border-bottom: 2px solid #eee; padding-bottom: 20px; }
+            .company-name { font-size: 24px; font-weight: bold; color: #2563eb; }
+            .invoice-title { font-size: 32px; font-weight: bold; text-align: right; color: #333; }
+            .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 40px; }
+            .label { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+            .value { font-size: 16px; font-weight: 500; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 40px; }
+            th { text-align: left; padding: 12px; border-bottom: 2px solid #eee; color: #666; font-size: 12px; text-transform: uppercase; }
+            td { padding: 12px; border-bottom: 1px solid #eee; }
+            .text-right { text-align: right; }
+            .totals { margin-left: auto; width: 300px; }
+            .total-row { display: flex; justify-content: space-between; padding: 8px 0; }
+            .total-final { font-size: 20px; font-weight: bold; border-top: 2px solid #333; margin-top: 8px; padding-top: 8px; }
+            .status-badge { display: inline-block; padding: 4px 12px; border-radius: 4px; font-weight: bold; text-transform: uppercase; font-size: 12px; }
+            .status-paid { background: #dcfce7; color: #166534; }
+            .status-pending { background: #fef9c3; color: #854d0e; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <div class="company-name">DTRS PRO</div>
+              <div style="margin-top: 8px; color: #666;">Field Service Management</div>
+            </div>
+            <div>
+              <div class="invoice-title">INVOICE</div>
+              <div class="text-right" style="color: #666;">#${selectedInvoice.invoiceNumber}</div>
+            </div>
+          </div>
+
+          <div class="meta-grid">
+            <div>
+              <div class="label">Bill To</div>
+              <div class="value">${selectedInvoice.customerName}</div>
+              <div style="margin-top: 4px; color: #666;">Job ID: ${selectedInvoice.jobId || 'N/A'}</div>
+            </div>
+            <div class="text-right">
+              <div class="label">Dates</div>
+              <div class="value">Issued: ${new Date(selectedInvoice.createdAt).toLocaleDateString()}</div>
+              <div class="value">Due: ${new Date(selectedInvoice.dueDate).toLocaleDateString()}</div>
+              <div style="margin-top: 8px;">
+                <span class="status-badge ${selectedInvoice.status === 'Paid' ? 'status-paid' : 'status-pending'}">
+                  ${selectedInvoice.status}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 50%">Description</th>
+                <th class="text-right">Qty</th>
+                <th class="text-right">Unit Price</th>
+                <th class="text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${selectedInvoice.lineItems.map(item => `
+                <tr>
+                  <td>
+                    <div style="font-weight: 500;">${item.description}</div>
+                    <div style="font-size: 12px; color: #666;">${item.sku || ''}</div>
+                  </td>
+                  <td class="text-right">${item.quantity} ${item.unit}</td>
+                  <td class="text-right">$${Number(item.unitPrice).toFixed(2)}</td>
+                  <td class="text-right" style="font-weight: 500;">$${Number(item.total).toFixed(2)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+
+          <div class="totals">
+            <div class="total-row">
+              <span style="color: #666;">Subtotal</span>
+              <span>$${(selectedInvoice.subtotal || 0).toFixed(2)}</span>
+            </div>
+            <div class="total-row">
+              <span style="color: #666;">Tax (${((selectedInvoice.taxRate || 0) * 100).toFixed(1)}%)</span>
+              <span>$${(selectedInvoice.taxAmount || 0).toFixed(2)}</span>
+            </div>
+            <div class="total-row total-final">
+              <span>Total</span>
+              <span>$${(selectedInvoice.total || 0).toFixed(2)}</span>
+            </div>
+            <div class="total-row">
+              <span style="color: #666;">Amount Paid</span>
+              <span>$${(selectedInvoice.paidAmount || 0).toFixed(2)}</span>
+            </div>
+            <div class="total-row" style="color: ${selectedInvoice.balanceDue > 0.01 ? '#dc2626' : '#166534'}; font-weight: bold;">
+              <span>Balance Due</span>
+              <span>$${(selectedInvoice.balanceDue || 0).toFixed(2)}</span>
+            </div>
+          </div>
+
+          ${selectedInvoice.notes ? `
+            <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee;">
+              <div class="label">Notes</div>
+              <div style="color: #666;">${selectedInvoice.notes}</div>
+            </div>
+          ` : ''}
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+
+    // Wait for content to load then print
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
   };
 
   const getStatusColor = (status) => {
@@ -99,26 +233,16 @@ const Invoices = () => {
       Paid: 'bg-green-100 text-green-800',
       Pending: 'bg-yellow-100 text-yellow-800',
       Overdue: 'bg-red-100 text-red-800',
-      Cancelled: 'bg-gray-100 text-gray-800',
       Draft: 'bg-gray-100 text-gray-800'
     };
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
 
-  const getTypeColor = (type) => {
-    const colors = {
-      Deposit: 'bg-blue-100 text-blue-800',
-      Progress: 'bg-purple-100 text-purple-800',
-      Final: 'bg-green-100 text-green-800'
-    };
-    return colors[type] || 'bg-gray-100 text-gray-800';
-  };
-
   const filteredInvoices = invoices.filter((invoice) => {
     const matchesSearch =
-      invoice.invoiceNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      invoice.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      invoice.jobId?.toLowerCase().includes(searchTerm.toLowerCase());
+      (invoice.invoiceNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (invoice.customerName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (invoice.jobId || '').toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = filterStatus === 'All' || invoice.status === filterStatus;
     return matchesSearch && matchesStatus;
   });
@@ -139,7 +263,7 @@ const Invoices = () => {
           <h1 className="text-3xl font-bold text-gray-900">Invoicing</h1>
           <p className="text-gray-600 mt-1">Manage invoices and payment tracking</p>
         </div>
-        <Button 
+        <Button
           className="bg-blue-600 hover:bg-blue-700 text-white"
           onClick={() => toast.info('Use Estimate Calculator to create invoices from estimates')}
         >
@@ -263,7 +387,7 @@ const Invoices = () => {
                       <span className="text-sm text-gray-600">{invoice.jobId || 'N/A'}</span>
                     </td>
                     <td className="py-3 px-4">
-                      <Badge className={getTypeColor(invoice.type)}>{invoice.type}</Badge>
+                      <Badge variant="outline">{invoice.type}</Badge>
                     </td>
                     <td className="py-3 px-4 font-semibold text-gray-900">
                       ${(invoice.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -288,8 +412,8 @@ const Invoices = () => {
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex gap-2">
-                        <Button 
-                          variant="outline" 
+                        <Button
+                          variant="outline"
                           size="sm"
                           onClick={() => {
                             setSelectedInvoice(invoice);
@@ -298,17 +422,16 @@ const Invoices = () => {
                         >
                           <Eye size={14} />
                         </Button>
-                        <Button 
-                          variant="outline" 
+                        <Button
+                          variant="outline"
                           size="sm"
-                          onClick={() => handleDownloadPDF(invoice)}
-                          disabled={!invoice.pdfUrl && loading}
+                          onClick={() => handleEmailInvoice(invoice)}
                         >
-                          <Download size={14} />
+                          <Mail size={14} />
                         </Button>
                         {invoice.status !== 'Paid' && (
-                          <Button 
-                            variant="outline" 
+                          <Button
+                            variant="outline"
                             size="sm"
                             onClick={() => {
                               setSelectedInvoice(invoice);
@@ -360,7 +483,7 @@ const Invoices = () => {
                 </div>
                 <div>
                   <Label>Type</Label>
-                  <Badge className={getTypeColor(selectedInvoice.type)}>{selectedInvoice.type}</Badge>
+                  <Badge variant="outline">{selectedInvoice.type}</Badge>
                 </div>
               </div>
 
@@ -381,8 +504,8 @@ const Invoices = () => {
                         <tr key={idx} className="border-t">
                           <td className="px-4 py-2">{item.description}</td>
                           <td className="px-4 py-2 text-right">{item.quantity} {item.unit}</td>
-                          <td className="px-4 py-2 text-right">${item.unitPrice.toFixed(2)}</td>
-                          <td className="px-4 py-2 text-right font-semibold">${item.total.toFixed(2)}</td>
+                          <td className="px-4 py-2 text-right">${Number(item.unitPrice).toFixed(2)}</td>
+                          <td className="px-4 py-2 text-right font-semibold">${Number(item.total).toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -417,21 +540,17 @@ const Invoices = () => {
                 </div>
               </div>
 
-              {selectedInvoice.notes && (
-                <div>
-                  <Label>Notes</Label>
-                  <p className="text-sm text-gray-600 mt-1">{selectedInvoice.notes}</p>
-                </div>
-              )}
-
               <div className="flex gap-2 pt-4">
-                <Button onClick={() => handleDownloadPDF(selectedInvoice)} className="flex-1">
+                <Button onClick={handlePrint} variant="outline" className="flex-1">
                   <Download size={16} className="mr-2" />
-                  {selectedInvoice.pdfUrl ? 'Download PDF' : 'Generate PDF'}
+                  Print
+                </Button>
+                <Button onClick={() => handlePayOnline(selectedInvoice)} variant="secondary" className="flex-1">
+                  <ExternalLink size={16} className="mr-2" />
+                  Pay Online Link
                 </Button>
                 {selectedInvoice.status !== 'Paid' && (
-                  <Button 
-                    variant="outline" 
+                  <Button
                     className="flex-1"
                     onClick={() => {
                       setIsViewDialogOpen(false);

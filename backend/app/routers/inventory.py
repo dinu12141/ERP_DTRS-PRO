@@ -25,6 +25,17 @@ async def list_items():
     return items
 
 
+@router.get("/bins", response_model=List[InventoryBin])
+async def list_bins():
+    docs = db.collection("inventoryBins").stream()
+    bins: List[InventoryBin] = []
+    for d in docs:
+        data = d.to_dict()
+        data["id"] = d.id
+        bins.append(InventoryBin(**data))
+    return bins
+
+
 @router.post("/items", response_model=InventoryItem)
 async def create_item(item: InventoryItem):
     data = item.model_dump(exclude={"id"})

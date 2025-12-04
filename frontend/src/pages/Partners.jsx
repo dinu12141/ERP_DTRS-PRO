@@ -1,22 +1,27 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { Plus, Search, Mail, Phone, MapPin, DollarSign, TrendingUp } from 'lucide-react';
+import { Plus, Search, Mail, Phone, MapPin, DollarSign, TrendingUp, Eye, Briefcase } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
-
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:8000';
+import { useFirestore } from '../hooks/useFirestore';
+import { useNavigate } from 'react-router-dom';
 
 const Partners = () => {
-  const [partners, setPartners] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [editingPartner, setEditingPartner] = useState(null);
+  const [selectedPartner, setSelectedPartner] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const navigate = useNavigate();
+
+  // Real-time listeners
+  const { data: partners, add: addPartner, update: updatePartner } = useFirestore('roofingPartners');
 
   const [formValues, setFormValues] = useState({
     companyName: '',
@@ -39,25 +44,6 @@ const Partners = () => {
     certifications: '',
     serviceAreas: ''
   });
-
-  const loadPartners = async () => {
-    const params = new URLSearchParams();
-    if (statusFilter !== 'All') {
-      params.append('status', statusFilter);
-    }
-    if (searchTerm) {
-      params.append('search', searchTerm);
-    }
-
-    const res = await fetch(`${API_BASE}/partners?${params.toString()}`);
-    const data = await res.json();
-    setPartners(data);
-  };
-
-  useEffect(() => {
-    loadPartners();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const handleOpenNew = () => {
     setEditingPartner(null);
@@ -95,6 +81,15 @@ const Partners = () => {
     setIsFormOpen(true);
   };
 
+  const handleViewDetails = (partner) => {
+    setSelectedPartner(partner);
+    setIsDetailsOpen(true);
+  };
+
+  const handleViewJobs = (partnerId) => {
+    navigate(`/jobs?partnerId=${partnerId}`);
+  };
+
   const handleFormChange = (field, value) => {
     setFormValues((prev) => ({ ...prev, [field]: value }));
   };
@@ -122,30 +117,25 @@ const Partners = () => {
       creditLimit: Number(formValues.creditLimit),
       currentBalance: editingPartner?.currentBalance || 0,
       certifications: formValues.certifications
-        ? formValues.certifications.split(',').map((c) => c.trim())
+        ? (typeof formValues.certifications === 'string' ? formValues.certifications.split(',') : formValues.certifications).map((c) => c.trim())
         : [],
       serviceAreas: formValues.serviceAreas
-        ? formValues.serviceAreas.split(',').map((c) => c.trim())
+        ? (typeof formValues.serviceAreas === 'string' ? formValues.serviceAreas.split(',') : formValues.serviceAreas).map((c) => c.trim())
         : []
     };
 
-    const method = editingPartner ? 'PUT' : 'POST';
-    const url = editingPartner
-      ? `${API_BASE}/partners/${editingPartner.id}`
-      : `${API_BASE}/partners`;
-
-    await fetch(url, {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        'X-User-Role': 'admin'
-      },
-      body: JSON.stringify(payload)
-    });
-
-    setIsSubmitting(false);
-    setIsFormOpen(false);
-    await loadPartners();
+    try {
+      if (editingPartner) {
+        await updatePartner(editingPartner.id, payload);
+      } else {
+        await addPartner(payload);
+      }
+      setIsSubmitting(false);
+      setIsFormOpen(false);
+    } catch (error) {
+      console.error('Error saving partner:', error);
+      setIsSubmitting(false);
+    }
   };
 
   const filteredPartners = partners.filter((partner) => {
@@ -207,176 +197,57 @@ const Partners = () => {
         </CardContent>
       </Card>
 
-      {/* Partners Grid */}
-      <div className="grid grid-cols-1 gap-6">
+      {/* Partners Grid - More Compact */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {filteredPartners.map((partner) => (
-          <Card key={partner.id} className="hover:shadow-lg transition-shadow">
-            <CardHeader>
-              <div className="flex items-start justify-between">
+          <Card key={partner.id} className="hover:shadow-md transition-shadow">
+            <CardContent className="p-5">
+              <div className="flex justify-between items-start mb-3">
                 <div>
-                  <CardTitle className="text-xl">{partner.companyName}</CardTitle>
-                  <p className="text-sm text-gray-500 mt-1">{partner.type}</p>
+                  <h3 className="text-lg font-bold text-gray-900">{partner.companyName}</h3>
+                  <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
+                    <Mail size={14} />
+                    <span>{partner.email}</span>
+                  </div>
                 </div>
                 <Badge className={getStatusColor(partner.status)}>{partner.status}</Badge>
               </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {/* Company Details */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-3 bg-gray-50 rounded-lg">
-                  <div>
-                    <p className="text-xs text-gray-500">Tax ID / EIN</p>
-                    <p className="text-sm font-medium text-gray-900">{partner.taxId}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">GL Policy #</p>
-                    <p className="text-sm font-medium text-gray-900">{partner.generalLiabilityPolicy}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Workers Comp #</p>
-                    <p className="text-sm font-medium text-gray-900">{partner.workersCompPolicy}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Last Activity</p>
-                    <p className="text-sm font-medium text-gray-900">{partner.lastActivity}</p>
-                  </div>
-                </div>
 
-                {/* Contact Info */}
-                <div className="space-y-2">
-                  <h4 className="text-sm font-semibold text-gray-700">Primary Contacts</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div className="p-2 border rounded-lg">
-                      <p className="text-xs font-semibold text-blue-600">Owner</p>
-                      <p className="text-sm font-medium text-gray-900">{partner.contacts.owner.name}</p>
-                      <p className="text-xs text-gray-600">{partner.contacts.owner.email}</p>
-                    </div>
-                    <div className="p-2 border rounded-lg">
-                      <p className="text-xs font-semibold text-purple-600">Production Manager</p>
-                      <p className="text-sm font-medium text-gray-900">{partner.contacts.productionManager.name}</p>
-                      <p className="text-xs text-gray-600">{partner.contacts.productionManager.email}</p>
-                    </div>
-                    <div className="p-2 border rounded-lg">
-                      <p className="text-xs font-semibold text-green-600">Admin</p>
-                      <p className="text-sm font-medium text-gray-900">{partner.contacts.admin.name}</p>
-                      <p className="text-xs text-gray-600">{partner.contacts.admin.email}</p>
-                    </div>
-                  </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm mb-4">
+                <div className="flex items-center gap-2">
+                  <Phone size={14} className="text-gray-400" />
+                  <span className="text-gray-700">{partner.phone}</span>
                 </div>
+                <div className="flex items-center gap-2">
+                  <MapPin size={14} className="text-gray-400" />
+                  <span className="text-gray-700 truncate">{partner.address}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500 text-xs">Credit Limit:</span>
+                  <span className="ml-2 font-medium">${partner.creditLimit?.toLocaleString()}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500 text-xs">Balance:</span>
+                  <span className="ml-2 font-medium">${partner.currentBalance?.toLocaleString()}</span>
+                </div>
+              </div>
 
-                {/* Location */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <Mail size={16} />
-                    <span>{partner.email}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <Phone size={16} />
-                    <span>{partner.phone}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <MapPin size={16} />
-                    <span>{partner.address}</span>
-                  </div>
-                </div>
-
-                {/* Financial Settings */}
-                <div className="pt-4 border-t">
-                  <h4 className="text-sm font-semibold text-gray-700 mb-3">Financial Settings</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div>
-                      <p className="text-xs text-gray-500">Credit Limit</p>
-                      <p className="text-lg font-semibold text-gray-900">
-                        ${partner.creditLimit.toLocaleString()}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">Current Balance</p>
-                      <p className="text-lg font-semibold text-gray-900">
-                        ${partner.currentBalance.toLocaleString()}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">Commission Model</p>
-                      <p className="text-sm font-medium text-gray-900">{partner.commissionModel}</p>
-                      <p className="text-xs text-blue-600 mt-1">
-                        {partner.commissionModel.includes('Percentage')
-                          ? `${partner.commissionRate}% of profit`
-                          : `$${partner.commissionRate}/kW`}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">Billing Method</p>
-                      <p className="text-sm font-medium text-gray-900">{partner.billingMethod}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Certifications & Service Areas */}
-                <div className="pt-4 border-t">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-xs text-gray-500 mb-2">Certifications</p>
-                      <div className="flex flex-wrap gap-1">
-                        {partner.certifications.map((cert, idx) => (
-                          <Badge key={idx} variant="outline" className="text-xs">
-                            {cert}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500 mb-2">Service Areas</p>
-                      <div className="flex flex-wrap gap-1">
-                        {partner.serviceAreas.map((area, idx) => (
-                          <Badge key={idx} variant="outline" className="text-xs bg-blue-50 text-blue-700">
-                            {area}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Stats */}
-                <div className="pt-4 border-t">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="flex items-center gap-2">
-                      <TrendingUp size={16} className="text-blue-500" />
-                      <div>
-                        <p className="text-xs text-gray-500">Total Jobs</p>
-                        <p className="text-lg font-semibold text-gray-900">{partner.totalJobs}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <DollarSign size={16} className="text-green-500" />
-                      <div>
-                        <p className="text-xs text-gray-500">Total Revenue</p>
-                        <p className="text-lg font-semibold text-gray-900">
-                          ${(partner.totalRevenue / 1000).toFixed(0)}K
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="pt-4 flex gap-2">
-                  <Button variant="outline" className="flex-1">
-                    View Details
-                  </Button>
-                  <Button variant="outline" className="flex-1" onClick={() => handleEdit(partner)}>
-                    Edit
-                  </Button>
-                  <Button variant="outline" className="flex-1">
-                    View Jobs
-                  </Button>
-                </div>
+              <div className="flex items-center gap-2 pt-3 border-t">
+                <Button variant="ghost" size="sm" className="flex-1 h-8 text-xs" onClick={() => handleViewDetails(partner)}>
+                  <Eye size={14} className="mr-1" /> Details
+                </Button>
+                <Button variant="ghost" size="sm" className="flex-1 h-8 text-xs" onClick={() => handleEdit(partner)}>
+                  Edit
+                </Button>
+                <Button variant="outline" size="sm" className="flex-1 h-8 text-xs border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => handleViewJobs(partner.id)}>
+                  <Briefcase size={14} className="mr-1" /> View Jobs
+                </Button>
               </div>
             </CardContent>
           </Card>
         ))}
       </div>
+
       {/* Create / Edit Partner Dialog */}
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
         <DialogContent className="max-w-3xl">
@@ -550,6 +421,74 @@ const Partners = () => {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Details Dialog */}
+      <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{selectedPartner?.companyName} - Details</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-gray-500">Tax ID</Label>
+                <p>{selectedPartner?.taxId}</p>
+              </div>
+              <div>
+                <Label className="text-gray-500">Status</Label>
+                <Badge className={getStatusColor(selectedPartner?.status || 'Active')}>{selectedPartner?.status}</Badge>
+              </div>
+              <div>
+                <Label className="text-gray-500">Email</Label>
+                <p>{selectedPartner?.email}</p>
+              </div>
+              <div>
+                <Label className="text-gray-500">Phone</Label>
+                <p>{selectedPartner?.phone}</p>
+              </div>
+            </div>
+            <div>
+              <Label className="text-gray-500">Address</Label>
+              <p>{selectedPartner?.address}</p>
+            </div>
+
+            <div className="border-t pt-2">
+              <Label className="text-gray-500 mb-2 block">Contacts</Label>
+              <div className="grid grid-cols-3 gap-2 text-sm">
+                {Object.entries(selectedPartner?.contacts || {}).map(([role, contact]) => (
+                  <div key={role} className="bg-gray-50 p-2 rounded">
+                    <p className="font-semibold capitalize text-xs text-gray-500">{role === 'productionManager' ? 'Prod. Manager' : role}</p>
+                    <p className="font-medium">{contact.name || '-'}</p>
+                    <p className="text-xs text-gray-500">{contact.email}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="border-t pt-2">
+              <Label className="text-gray-500 mb-2 block">Financials</Label>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-500">Commission: </span>
+                  <span>{selectedPartner?.commissionModel === 'flat_fee_per_kw' ? `$${selectedPartner?.commissionRate}/kW` : `${selectedPartner?.commissionRate}%`}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Billing: </span>
+                  <span>{selectedPartner?.billingMethod}</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-gray-500">Notes/Certifications</Label>
+              <p>{(selectedPartner?.certifications || []).join(', ')}</p>
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={() => setIsDetailsOpen(false)}>Close</Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

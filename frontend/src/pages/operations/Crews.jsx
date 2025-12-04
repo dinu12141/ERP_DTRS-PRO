@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
@@ -6,15 +6,13 @@ import { Input } from '../../components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Label } from '../../components/ui/label';
 import { Plus, Users, Truck, MapPin, Search, Edit, Trash2 } from 'lucide-react';
-import axios from 'axios';
 import { toast } from 'sonner';
-
-const API_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
+import { useFirestore } from '../../hooks/useFirestore';
 
 const Crews = () => {
-  const [crews, setCrews] = useState([]);
-  const [vehicles, setVehicles] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { data: crews, loading: crewsLoading, add: addCrew, update: updateCrew, remove: deleteCrew } = useFirestore('crews');
+  const { data: vehicles, loading: vehiclesLoading } = useFirestore('vehicles');
+
   const [searchTerm, setSearchTerm] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCrew, setEditingCrew] = useState(null);
@@ -25,46 +23,29 @@ const Crews = () => {
     vehicleId: '',
     capabilityTags: [],
     members: [],
+    status: 'Available'
   });
   const [newTag, setNewTag] = useState('');
   const availableCapabilities = ['Detach', 'Reset', 'Electrical', 'Roofing', 'Inspection', 'Survey'];
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
-    try {
-      const [crewsRes, vehiclesRes] = await Promise.all([
-        axios.get(`${API_URL}/crews`),
-        axios.get(`${API_URL}/vehicles`),
-      ]);
-      setCrews(crewsRes.data);
-      setVehicles(vehiclesRes.data);
-    } catch (error) {
-      console.error('Failed to fetch data:', error);
-      toast.error('Failed to load crews');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const loading = crewsLoading || vehiclesLoading;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
       if (editingCrew) {
-        await axios.put(`${API_URL}/crews/${editingCrew.id}`, formData);
+        await updateCrew(editingCrew.id, formData);
         toast.success('Crew updated successfully');
       } else {
-        await axios.post(`${API_URL}/crews`, formData);
+        await addCrew(formData);
         toast.success('Crew created successfully');
       }
       setIsDialogOpen(false);
       setEditingCrew(null);
       resetForm();
-      fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to save crew');
+      console.error(error);
+      toast.error('Failed to save crew');
     }
   };
 
@@ -77,6 +58,7 @@ const Crews = () => {
       vehicleId: crew.vehicleId || '',
       capabilityTags: crew.capabilityTags || [],
       members: crew.members || [],
+      status: crew.status || 'Available'
     });
     setIsDialogOpen(true);
   };
@@ -84,9 +66,8 @@ const Crews = () => {
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to delete this crew?')) return;
     try {
-      await axios.delete(`${API_URL}/crews/${id}`);
+      await deleteCrew(id);
       toast.success('Crew deleted successfully');
-      fetchData();
     } catch (error) {
       toast.error('Failed to delete crew');
     }
@@ -100,6 +81,7 @@ const Crews = () => {
       vehicleId: '',
       capabilityTags: [],
       members: [],
+      status: 'Available'
     });
   };
 
@@ -335,4 +317,3 @@ const Crews = () => {
 };
 
 export default Crews;
-

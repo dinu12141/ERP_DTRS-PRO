@@ -1,17 +1,16 @@
 import React, { useState, useEffect } from 'react';
+import { collection, addDoc, updateDoc, doc, getDocs, query, where } from 'firebase/firestore';
+import { db } from '../../config/firebase';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Textarea } from '../../components/ui/textarea';
-import { Plus, Trash2, Calculator, DollarSign, Save, FileText } from 'lucide-react';
-import axios from 'axios';
+import { Plus, Trash2, Save, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
-
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:8000';
+import { useAuth } from '../../contexts/AuthContextFirebase';
 
 const EstimateCalculator = () => {
   const navigate = useNavigate();
@@ -27,10 +26,13 @@ const EstimateCalculator = () => {
   const [notes, setNotes] = useState('');
   const [estimateId, setEstimateId] = useState(null);
   const [creatingInvoice, setCreatingInvoice] = useState(false);
+  const { user } = useAuth();
 
   useEffect(() => {
-    loadSKUs();
-  }, []);
+    if (user) {
+      loadSKUs();
+    }
+  }, [user]);
 
   useEffect(() => {
     calculateTotals();
@@ -38,8 +40,9 @@ const EstimateCalculator = () => {
 
   const loadSKUs = async () => {
     try {
-      const response = await axios.get(`${API_BASE}/skus?isActive=true`);
-      setSkus(response.data);
+      const q = query(collection(db, 'skus'), where('isActive', '==', true));
+      const snapshot = await getDocs(q);
+      setSkus(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     } catch (error) {
       console.error('Failed to load SKUs:', error);
     }
@@ -72,23 +75,23 @@ const EstimateCalculator = () => {
   const updateLineItem = (index, field, value) => {
     const updated = [...lineItems];
     updated[index] = { ...updated[index], [field]: value };
-    
+
     // If SKU selected, populate description and unit price
     if (field === 'skuId' && value) {
       const selectedSku = skus.find(s => s.id === value);
       if (selectedSku) {
         updated[index].sku = selectedSku.sku;
         updated[index].description = selectedSku.name;
-        updated[index].unitPrice = selectedSku.unitPrice;
+        updated[index].unitPrice = Number(selectedSku.unitPrice);
         updated[index].unit = selectedSku.unit;
       }
     }
-    
+
     // Recalculate total for this line item
-    if (field === 'quantity' || field === 'unitPrice') {
-      updated[index].total = (updated[index].quantity || 0) * (updated[index].unitPrice || 0);
+    if (field === 'quantity' || field === 'unitPrice' || field === 'skuId') {
+      updated[index].total = (Number(updated[index].quantity) || 0) * (Number(updated[index].unitPrice) || 0);
     }
-    
+
     setLineItems(updated);
   };
 
@@ -106,30 +109,36 @@ const EstimateCalculator = () => {
           skuId: item.skuId,
           sku: item.sku,
           description: item.description,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
+          quantity: Number(item.quantity),
+          unitPrice: Number(item.unitPrice),
           unit: item.unit,
-          total: item.total
+          total: Number(item.total)
         })),
         subtotal,
         taxRate: taxRate / 100,
         taxAmount,
         total,
         notes: notes || null,
-        status: 'draft'
+        status: 'draft',
+        updatedAt: new Date().toISOString(),
+        updatedBy: user.uid
       };
 
       if (estimateId) {
-        await axios.put(`${API_BASE}/api/estimates/${estimateId}`, estimateData);
+        await updateDoc(doc(db, 'quotes', estimateId), estimateData);
         toast.success('Estimate updated successfully!');
       } else {
-        const response = await axios.post(`${API_BASE}/api/estimates`, estimateData);
-        setEstimateId(response.data.id);
+        const docRef = await addDoc(collection(db, 'quotes'), {
+          ...estimateData,
+          createdAt: new Date().toISOString(),
+          createdBy: user.uid
+        });
+        setEstimateId(docRef.id);
         toast.success('Estimate saved successfully!');
       }
     } catch (error) {
       console.error('Failed to save estimate:', error);
-      toast.error(error.response?.data?.detail || 'Failed to save estimate');
+      toast.error('Failed to save estimate');
     }
   };
 
@@ -141,14 +150,37 @@ const EstimateCalculator = () => {
 
     try {
       setCreatingInvoice(true);
-      const response = await axios.post(
-        `${API_BASE}/api/estimates/${estimateId}/create-invoice?invoice_type=${invoiceType}`
-      );
-      toast.success(`Invoice created successfully! Invoice: ${response.data.invoice.invoiceNumber}`);
+
+      // Create Invoice Document
+      const invoiceData = {
+        invoiceNumber: `INV-${Date.now()}`, // Simple ID generation
+        estimateId: estimateId,
+        jobId: jobId || null,
+        customerName: customerName || 'Unknown Customer',
+        type: invoiceType,
+        lineItems: lineItems,
+        subtotal,
+        taxRate: taxRate / 100,
+        taxAmount,
+        total,
+        paidAmount: 0,
+        balanceDue: total,
+        status: 'Pending',
+        dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // Due in 7 days
+        createdAt: new Date().toISOString(),
+        createdBy: user.uid
+      };
+
+      await addDoc(collection(db, 'invoices'), invoiceData);
+
+      // Update Estimate Status
+      await updateDoc(doc(db, 'quotes', estimateId), { status: 'invoiced' });
+
+      toast.success('Invoice created successfully!');
       navigate('/financial/invoices');
     } catch (error) {
       console.error('Failed to create invoice:', error);
-      toast.error(error.response?.data?.detail || 'Failed to create invoice');
+      toast.error('Failed to create invoice');
     } finally {
       setCreatingInvoice(false);
     }
@@ -168,13 +200,13 @@ const EstimateCalculator = () => {
             Save Estimate
           </Button>
           {estimateId && (
-            <Button 
-              onClick={() => handleCreateInvoice('Deposit')} 
+            <Button
+              onClick={() => handleCreateInvoice('Deposit')}
               variant="outline"
               disabled={creatingInvoice}
             >
               <FileText size={20} className="mr-2" />
-              Create Deposit Invoice
+              Create Invoice
             </Button>
           )}
         </div>
@@ -383,4 +415,3 @@ const EstimateCalculator = () => {
 };
 
 export default EstimateCalculator;
-

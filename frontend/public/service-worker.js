@@ -88,3 +88,4 @@ async function syncOfflineData() {
   console.log('Background sync triggered');
 }
 
+

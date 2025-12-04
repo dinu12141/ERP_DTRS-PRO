@@ -7,19 +7,28 @@ import { Smartphone, ClipboardCheck, Camera, Wrench, RotateCcw, FileText } from 
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
+import { useAuth } from '../../contexts/AuthContextFirebase';
+
+const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:8000';
 
 const FieldApp = () => {
+  const { user } = useAuth();
   const [activeJobs, setActiveJobs] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchActiveJobs();
-  }, []);
+    if (user) {
+      fetchActiveJobs();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const fetchActiveJobs = async () => {
     try {
-      const response = await axios.get(`${API_URL}/jobs?status=in-progress`);
+      const token = await user.getIdToken();
+      const response = await axios.get(`${API_BASE}/jobs?status=in-progress`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       setActiveJobs(response.data);
     } catch (error) {
       console.error('Failed to fetch jobs:', error);

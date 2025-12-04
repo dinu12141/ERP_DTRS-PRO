@@ -107,6 +107,7 @@ class Job(BaseModel):
     status: JobStatus = JobStatus.SCHEDULED
     type: JobType
     scheduledDate: datetime
+    assignedCrewId: Optional[str] = None
     technicianIds: List[str] = []
     address: Address
 
@@ -222,6 +223,22 @@ class RoofingPartnerContacts(BaseModel):
     owner: PartnerContact
     productionManager: PartnerContact
     admin: PartnerContact
+
+
+class Contact(BaseModel):
+    id: Optional[str] = None
+    partnerId: str
+    partnerName: Optional[str] = None  # Denormalized for display
+    firstName: str
+    lastName: str
+    role: str
+    email: EmailStr
+    phone: Optional[str] = None
+    mobile: Optional[str] = None
+    isPrimary: bool = False
+    permissions: List[str] = []
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+    updatedAt: datetime = Field(default_factory=datetime.utcnow)
 
 
 class RoofingPartner(BaseModel):
@@ -613,4 +630,55 @@ class Notification(BaseModel):
     relatedEntityType: Optional[Literal["job", "invoice", "document"]] = None
     relatedEntityId: Optional[str] = None
     isRead: bool = False
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ---------- Tech / Field App ----------
+
+class TechJSA(BaseModel):
+    id: Optional[str] = None
+    jobId: str
+    technicianId: str
+    location: str
+    hazardsReviewed: bool
+    ppeChecked: bool
+    lockoutTagout: bool
+    notes: Optional[str] = None
+    signatureName: str
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+
+
+class TechDamageScan(BaseModel):
+    id: Optional[str] = None
+    jobId: str
+    technicianId: str
+    roofDamagePhotos: List[str] = []
+    equipmentDamagePhotos: List[str] = []
+    notes: str
+    invoiceNote: Optional[str] = None
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+
+
+class TechDetach(BaseModel):
+    id: Optional[str] = None
+    jobId: str
+    technicianId: str
+    productionBaselineKw: float
+    inverterSerialPhotos: List[str] = []
+    assetTags: str
+    equipmentLocationNotes: str
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+
+
+class TechReset(BaseModel):
+    id: Optional[str] = None
+    jobId: str
+    technicianId: str
+    stringVoltage: float
+    inverterMpptWindowMin: float
+    inverterMpptWindowMax: float
+    commissioningChecklistComplete: bool
+    commissioningPhotos: List[str] = []
+    notes: Optional[str] = None
+    stringSizingValid: bool = True
     createdAt: datetime = Field(default_factory=datetime.utcnow)

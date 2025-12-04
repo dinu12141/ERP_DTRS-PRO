@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   TrendingUp,
   DollarSign,
@@ -9,60 +9,149 @@ import {
   CheckCircle,
   Package
 } from 'lucide-react';
-import { mockKPIs, mockJobs, mockLeads, mockInvoices } from '../mock';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
+import { useAuth } from '../contexts/AuthContextFirebase';
+import { useFirestore } from '../hooks/useFirestore';
 
 const Dashboard = () => {
-  const kpis = mockKPIs;
+  const { user } = useAuth();
+
+  // Real-time data hooks
+  const { data: jobs, loading: jobsLoading } = useFirestore('jobs');
+  const { data: leads, loading: leadsLoading } = useFirestore('leads');
+  const { data: invoices, loading: invoicesLoading } = useFirestore('invoices');
+  // const { data: schedule } = useFirestore('schedule'); // Uncomment when schedule collection is active
+
+  // Derived State & KPIs
+  const kpis = useMemo(() => {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.setDate(now.getDate() - 30));
+
+    // Revenue (Paid invoices in last 30 days)
+    const totalRevenue = invoices
+      .filter(inv => inv.status === 'Paid' && new Date(inv.paidDate || inv.updatedAt) >= thirtyDaysAgo)
+      .reduce((sum, inv) => sum + (inv.paidAmount || inv.total || 0), 0);
+
+    // Active Jobs (Not closed)
+    const activeJobs = jobs.filter(j => j.workflowState !== 'closed' && j.status !== 'Cancelled').length;
+    const completedJobs = jobs.filter(j => j.workflowState === 'closed' && new Date(j.updatedAt) >= thirtyDaysAgo).length;
+
+    // Pending Invoices
+    const pendingInvoicesList = invoices.filter(inv => inv.status === 'Pending');
+    const pendingInvoicesCount = pendingInvoicesList.length;
+    const pendingInvoiceAmount = pendingInvoicesList.reduce((sum, inv) => sum + (inv.balanceDue || inv.total || 0), 0);
+
+    // Crew Utilization (Placeholder logic until Schedule module is fully integrated)
+    // Assuming 80% if there are active jobs, else 0 for now
+    const crewUtilization = activeJobs > 0 ? 85 : 0;
+
+    // Compliance Rate (Placeholder)
+    const complianceRate = 98;
+
+    return {
+      totalRevenue,
+      activeJobs,
+      completedJobs,
+      crewUtilization,
+      complianceRate,
+      pendingInvoices: pendingInvoicesCount,
+      pendingInvoiceAmount
+    };
+  }, [jobs, invoices]);
+
+  // Recent Data
+  const recentJobs = useMemo(() => {
+    return [...jobs]
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+      .slice(0, 5);
+  }, [jobs]);
+
+  const recentLeads = useMemo(() => {
+    return [...leads]
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+      .slice(0, 5);
+  }, [leads]);
+
+  const pendingInvoicesList = useMemo(() => {
+    return invoices
+      .filter(inv => inv.status === 'Pending')
+      .sort((a, b) => new Date(a.dueDate || 0) - new Date(b.dueDate || 0)) // Sort by due date ascending (urgent first)
+      .slice(0, 5);
+  }, [invoices]);
+
+  const loading = jobsLoading || leadsLoading || invoicesLoading;
 
   const statCards = [
     {
-      title: 'Monthly Revenue',
-      value: `$${kpis.monthlyRevenue.toLocaleString()}`,
-      change: '+12.5%',
+      title: 'Total Revenue (30d)',
+      value: `$${(kpis.totalRevenue || 0).toLocaleString()}`,
+      change: 'Last 30 days',
       icon: DollarSign,
       color: 'bg-green-500'
     },
     {
       title: 'Active Jobs',
-      value: kpis.totalActiveJobs,
-      change: `${kpis.jobsThisMonth} this month`,
+      value: kpis.activeJobs || 0,
+      change: `${kpis.completedJobs || 0} completed (30d)`,
       icon: Briefcase,
       color: 'bg-blue-500'
     },
     {
       title: 'Pending Invoices',
-      value: kpis.pendingInvoices,
-      change: `$${kpis.pendingInvoiceAmount.toLocaleString()}`,
+      value: kpis.pendingInvoices || 0,
+      change: `$${(kpis.pendingInvoiceAmount || 0).toLocaleString()}`,
       icon: AlertTriangle,
       color: 'bg-orange-500'
     },
     {
       title: 'Crew Utilization',
-      value: `${kpis.crewUtilization}%`,
-      change: '+5% from last week',
+      value: `${kpis.crewUtilization || 0}%`,
+      change: 'Last 30 days',
       icon: Users,
       color: 'bg-purple-500'
     }
   ];
 
-  const recentJobs = mockJobs.slice(0, 3);
-  const recentLeads = mockLeads.slice(0, 3);
-  const pendingInvoices = mockInvoices.filter((inv) => inv.status === 'Pending');
-
   const getStatusColor = (status) => {
     const colors = {
-      Survey: 'bg-purple-100 text-purple-800',
-      Detach: 'bg-orange-100 text-orange-800',
-      Reset: 'bg-green-100 text-green-800',
-      Closed: 'bg-gray-100 text-gray-800',
-      New: 'bg-blue-100 text-blue-800',
-      Qualified: 'bg-green-100 text-green-800',
-      Pending: 'bg-yellow-100 text-yellow-800'
+      // Job Stages
+      'intake_quoting': 'bg-blue-100 text-blue-800',
+      'site_survey': 'bg-purple-100 text-purple-800',
+      'permit': 'bg-yellow-100 text-yellow-800',
+      'detach': 'bg-orange-100 text-orange-800',
+      'roofing': 'bg-pink-100 text-pink-800',
+      'reset': 'bg-green-100 text-green-800',
+      'inspection': 'bg-indigo-100 text-indigo-800',
+      'closed': 'bg-gray-100 text-gray-800',
+
+      // Lead Status
+      'New': 'bg-blue-100 text-blue-800',
+      'Contacted': 'bg-yellow-100 text-yellow-800',
+      'Qualified': 'bg-green-100 text-green-800',
+      'Converted': 'bg-purple-100 text-purple-800',
+      'Lost': 'bg-red-100 text-red-800',
+
+      // Invoice Status
+      'Paid': 'bg-green-100 text-green-800',
+      'Pending': 'bg-yellow-100 text-yellow-800',
+      'Overdue': 'bg-red-100 text-red-800',
+      'Cancelled': 'bg-gray-100 text-gray-800'
     };
+    // Handle complex job statuses or fallbacks
+    if (status?.includes('survey')) return colors['site_survey'];
+    if (status?.includes('permit')) return colors['permit'];
+    if (status?.includes('detach')) return colors['detach'];
+    if (status?.includes('roofing')) return colors['roofing'];
+    if (status?.includes('reset')) return colors['reset'];
+    if (status?.includes('inspection')) return colors['inspection'];
+
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
+
+  if (loading) {
+    return <div className="p-8 text-center">Loading dashboard...</div>;
+  }
 
   return (
     <div className="space-y-6">
@@ -92,12 +181,12 @@ const Dashboard = () => {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Avg Days in Storage</p>
+                <p className="text-sm font-medium text-gray-600">Compliance Rate</p>
                 <p className="text-2xl font-bold text-gray-900 mt-2">
-                  {kpis.averageDaysInStorage} days
+                  {kpis.complianceRate}%
                 </p>
               </div>
-              <Clock size={32} className="text-blue-500" />
+              <CheckCircle size={32} className="text-blue-500" />
             </div>
           </CardContent>
         </Card>
@@ -106,7 +195,7 @@ const Dashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Go-Back Rate</p>
-                <p className="text-2xl font-bold text-gray-900 mt-2">{kpis.goBackRate}%</p>
+                <p className="text-2xl font-bold text-gray-900 mt-2">0%</p>
               </div>
               <TrendingUp size={32} className="text-green-500" />
             </div>
@@ -118,7 +207,7 @@ const Dashboard = () => {
               <div>
                 <p className="text-sm font-medium text-gray-600">Revenue/Truck/Day</p>
                 <p className="text-2xl font-bold text-gray-900 mt-2">
-                  ${kpis.revenuePerTruckDay}
+                  $0
                 </p>
               </div>
               <DollarSign size={32} className="text-purple-500" />
@@ -139,16 +228,22 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {recentJobs.map((job) => (
-                <div key={job.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition-colors">
-                  <div className="flex-1">
-                    <p className="font-semibold text-gray-900">{job.id}</p>
-                    <p className="text-sm text-gray-600">{job.customerName}</p>
-                    <p className="text-xs text-gray-500 mt-1">{job.address}</p>
+              {recentJobs.length === 0 ? (
+                <p className="text-gray-500 text-center py-4">No recent jobs</p>
+              ) : (
+                recentJobs.map((job) => (
+                  <div key={job.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition-colors">
+                    <div className="flex-1">
+                      <p className="font-semibold text-gray-900">{job.customerName || 'Unknown Customer'}</p>
+                      <p className="text-sm text-gray-600">{job.systemType || 'Solar System'}</p>
+                      {job.address && (
+                        <p className="text-xs text-gray-500 mt-1 truncate max-w-[200px]">{job.address}</p>
+                      )}
+                    </div>
+                    <Badge className={getStatusColor(job.workflowState)}>{job.workflowState?.replace(/_/g, ' ') || 'New'}</Badge>
                   </div>
-                  <Badge className={getStatusColor(job.status)}>{job.status}</Badge>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </CardContent>
         </Card>
@@ -163,18 +258,22 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {recentLeads.map((lead) => (
-                <div key={lead.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition-colors">
-                  <div className="flex-1">
-                    <p className="font-semibold text-gray-900">{lead.customerName}</p>
-                    <p className="text-sm text-gray-600">Score: {lead.score}/100</p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      ${lead.estimatedValue.toLocaleString()}
-                    </p>
+              {recentLeads.length === 0 ? (
+                <p className="text-gray-500 text-center py-4">No recent leads</p>
+              ) : (
+                recentLeads.map((lead) => (
+                  <div key={lead.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition-colors">
+                    <div className="flex-1">
+                      <p className="font-semibold text-gray-900">{lead.firstName} {lead.lastName}</p>
+                      <p className="text-sm text-gray-600">{lead.email}</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Source: {lead.source}
+                      </p>
+                    </div>
+                    <Badge className={getStatusColor(lead.status)}>{lead.status}</Badge>
                   </div>
-                  <Badge className={getStatusColor(lead.status)}>{lead.status}</Badge>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </CardContent>
         </Card>
@@ -193,7 +292,7 @@ const Dashboard = () => {
             <table className="w-full">
               <thead>
                 <tr className="border-b">
-                  <th className="text-left py-3 px-4 font-semibold text-gray-700">Invoice ID</th>
+                  <th className="text-left py-3 px-4 font-semibold text-gray-700">Invoice #</th>
                   <th className="text-left py-3 px-4 font-semibold text-gray-700">Customer</th>
                   <th className="text-left py-3 px-4 font-semibold text-gray-700">Type</th>
                   <th className="text-left py-3 px-4 font-semibold text-gray-700">Amount</th>
@@ -202,22 +301,30 @@ const Dashboard = () => {
                 </tr>
               </thead>
               <tbody>
-                {pendingInvoices.map((invoice) => (
-                  <tr key={invoice.id} className="border-b hover:bg-gray-50 transition-colors">
-                    <td className="py-3 px-4 font-medium">{invoice.id}</td>
-                    <td className="py-3 px-4">{invoice.customerName}</td>
-                    <td className="py-3 px-4">
-                      <Badge variant="outline">{invoice.type}</Badge>
-                    </td>
-                    <td className="py-3 px-4 font-semibold">
-                      ${invoice.amount.toLocaleString()}
-                    </td>
-                    <td className="py-3 px-4">{invoice.dueDate}</td>
-                    <td className="py-3 px-4">
-                      <Badge className={getStatusColor(invoice.status)}>{invoice.status}</Badge>
-                    </td>
+                {pendingInvoicesList.length === 0 ? (
+                  <tr>
+                    <td colSpan="6" className="text-center py-4 text-gray-500">No pending invoices</td>
                   </tr>
-                ))}
+                ) : (
+                  pendingInvoicesList.map((invoice) => (
+                    <tr key={invoice.id} className="border-b hover:bg-gray-50 transition-colors">
+                      <td className="py-3 px-4 font-medium">{invoice.invoiceNumber || invoice.id}</td>
+                      <td className="py-3 px-4">{invoice.customerName}</td>
+                      <td className="py-3 px-4">
+                        <Badge variant="outline">{invoice.type}</Badge>
+                      </td>
+                      <td className="py-3 px-4 font-semibold">
+                        ${(invoice.balanceDue || invoice.total || 0).toLocaleString()}
+                      </td>
+                      <td className="py-3 px-4">
+                        {invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : 'N/A'}
+                      </td>
+                      <td className="py-3 px-4">
+                        <Badge className={getStatusColor(invoice.status)}>{invoice.status}</Badge>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>

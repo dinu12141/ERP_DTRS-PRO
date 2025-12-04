@@ -5,6 +5,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { collection, addDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { saveOffline, syncPending } from '../utils/offlineSync';
+import axios from 'axios';
+import { useAuth } from '../contexts/AuthContextFirebase';
 import TechLayout from '../components/TechLayout';
 import PhotoCapture from '../components/PhotoCapture';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -78,17 +80,23 @@ const TechReset = () => {
     }
   }, [stringVoltage, inverterMpptWindowMin, inverterMpptWindowMax]);
 
+  const { user } = useAuth();
+  const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:8000';
+
   const onSubmit = async (values) => {
     try {
       const data = {
         ...values,
         createdAt: new Date().toISOString(),
-        technicianId: 'current_user',
+        technicianId: user?.uid || 'offline_user',
         stringSizingValid: !voltageWarning,
       };
 
       if (isOnline) {
-        await addDoc(collection(db, 'reset_workflows'), data);
+        const token = await user.getIdToken();
+        await axios.post(`${API_BASE}/tech/reset`, data, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
         toast.success('Reset workflow submitted successfully!');
       } else {
         await saveOffline('reset_workflows', data);
@@ -100,7 +108,12 @@ const TechReset = () => {
       }
     } catch (error) {
       console.error('Error submitting reset workflow:', error);
-      toast.error('Failed to submit reset workflow. Please try again.');
+      if (!isOnline || error.message === 'Network Error') {
+        await saveOffline('reset_workflows', data);
+        toast.info('Network error. Reset workflow saved offline.');
+      } else {
+        toast.error('Failed to submit reset workflow. Please try again.');
+      }
     }
   };
 

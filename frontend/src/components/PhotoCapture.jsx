@@ -15,6 +15,7 @@ const PhotoCapture = ({
   maxPhotos = 10,
   required = false,
   label = 'Photos',
+  onView,
 }) => {
   const [photos, setPhotos] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -29,7 +30,7 @@ const PhotoCapture = ({
       setUploading(true);
       const previewURL = createPreviewURL(file);
       const downloadURL = await uploadPhotoToStorage(file, path);
-      
+
       const newPhoto = {
         url: downloadURL,
         preview: previewURL,
@@ -39,7 +40,7 @@ const PhotoCapture = ({
       const updatedPhotos = [...photos, newPhoto];
       setPhotos(updatedPhotos);
       onPhotoCaptured?.(updatedPhotos.map((p) => p.url));
-      
+
       // Clean up preview URL after a delay
       setTimeout(() => revokePreviewURL(previewURL), 1000);
     } catch (error) {
@@ -73,7 +74,7 @@ const PhotoCapture = ({
         const updatedPhotos = [...photos, newPhoto];
         setPhotos(updatedPhotos);
         onPhotoCaptured?.(updatedPhotos.map((p) => p.url));
-        
+
         setTimeout(() => revokePreviewURL(previewURL), 1000);
       } catch (error) {
         console.error('Error capturing from camera:', error);
@@ -88,7 +89,7 @@ const PhotoCapture = ({
     const updatedPhotos = photos.filter((_, i) => i !== index);
     setPhotos(updatedPhotos);
     onPhotoCaptured?.(updatedPhotos.map((p) => p.url));
-    
+
     // Clean up preview URL
     if (photos[index].preview) {
       revokePreviewURL(photos[index].preview);
@@ -105,16 +106,17 @@ const PhotoCapture = ({
       {photos.length > 0 && (
         <div className="grid grid-cols-3 gap-2">
           {photos.map((photo, index) => (
-            <div key={index} className="relative aspect-square rounded-lg overflow-hidden border border-gray-200">
+            <div key={index} className="relative aspect-square rounded-lg overflow-hidden border border-gray-200 group">
               <img
                 src={photo.preview || photo.url}
                 alt={`Photo ${index + 1}`}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover cursor-pointer"
+                onClick={() => onView && onView(photo.preview || photo.url)}
               />
               <button
                 type="button"
                 onClick={() => removePhoto(index)}
-                className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity"
               >
                 <X size={14} />
               </button>

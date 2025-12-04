@@ -64,3 +64,4 @@ const TechLayout = ({ children, title, showBack = true }) => {
 
 export default TechLayout;
 
+

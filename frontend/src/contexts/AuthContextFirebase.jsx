@@ -5,7 +5,7 @@ import {
   onAuthStateChanged,
   createUserWithEmailAndPassword,
 } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 import axios from 'axios';
 
@@ -19,49 +19,51 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
       setFirebaseUser(firebaseUser);
-      
+
       if (firebaseUser) {
-        // Get user data from Firestore
-        try {
-          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-          if (userDoc.exists()) {
-            const userData = { id: firebaseUser.uid, ...userDoc.data() };
+        // Set up axios with Firebase ID token immediately
+        const token = await firebaseUser.getIdToken();
+        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+
+        // Real-time listener for user data
+        const unsubscribeSnapshot = onSnapshot(doc(db, 'users', firebaseUser.uid), (docSnap) => {
+          if (docSnap.exists()) {
+            const userData = { id: firebaseUser.uid, ...docSnap.data() };
             setUser(userData);
-            
-            // Set up axios with Firebase ID token
-            const token = await firebaseUser.getIdToken();
-            axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
           }
-        } catch (error) {
+          setLoading(false);
+        }, (error) => {
           console.error('Failed to fetch user data:', error);
-        }
+          setLoading(false);
+        });
+
+        return () => unsubscribeSnapshot();
       } else {
         setUser(null);
         delete axios.defaults.headers.common['Authorization'];
+        setLoading(false);
       }
-      
-      setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => unsubscribeAuth();
   }, []);
 
   const login = async (email, password) => {
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const token = await userCredential.user.getIdToken();
-      
+
       // Get user data from Firestore
       const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
       if (userDoc.exists()) {
         const userData = { id: userCredential.user.uid, ...userDoc.data() };
         setUser(userData);
-        
+
         // Set axios header
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-        
+
         return { success: true, role: userData.role };
       } else {
         return { success: false, error: 'User data not found' };
@@ -79,7 +81,7 @@ export const AuthProvider = ({ children }) => {
     try {
       // Create user in Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      
+
       // Register with backend to save additional user data
       const response = await axios.post(`${API_URL}/auth/register`, {
         user: {
@@ -88,7 +90,7 @@ export const AuthProvider = ({ children }) => {
         },
         password,
       });
-      
+
       return { success: true, user: response.data };
     } catch (error) {
       console.error('Registration failed:', error);

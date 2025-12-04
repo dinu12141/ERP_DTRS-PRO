@@ -1,19 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
-import { Badge } from '../../components/ui/badge';
 import { Input } from '../../components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Label } from '../../components/ui/label';
 import { Plus, Truck, Search, Edit, Trash2, Package } from 'lucide-react';
-import axios from 'axios';
 import { toast } from 'sonner';
-
-const API_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
+import { useFirestore } from '../../hooks/useFirestore';
 
 const Vehicles = () => {
-  const [vehicles, setVehicles] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { data: vehicles, loading, add: addVehicle, update: updateVehicle, remove: deleteVehicle } = useFirestore('vehicles');
+
   const [searchTerm, setSearchTerm] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState(null);
@@ -25,38 +22,22 @@ const Vehicles = () => {
     homeBase: '',
   });
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
-    try {
-      const response = await axios.get(`${API_URL}/vehicles`);
-      setVehicles(response.data);
-    } catch (error) {
-      console.error('Failed to fetch data:', error);
-      toast.error('Failed to load vehicles');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
       if (editingVehicle) {
-        await axios.put(`${API_URL}/vehicles/${editingVehicle.id}`, formData);
+        await updateVehicle(editingVehicle.id, formData);
         toast.success('Vehicle updated successfully');
       } else {
-        await axios.post(`${API_URL}/vehicles`, formData);
+        await addVehicle(formData);
         toast.success('Vehicle created successfully');
       }
       setIsDialogOpen(false);
       setEditingVehicle(null);
       resetForm();
-      fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to save vehicle');
+      console.error(error);
+      toast.error('Failed to save vehicle');
     }
   };
 
@@ -75,9 +56,8 @@ const Vehicles = () => {
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to delete this vehicle?')) return;
     try {
-      await axios.delete(`${API_URL}/vehicles/${id}`);
+      await deleteVehicle(id);
       toast.success('Vehicle deleted successfully');
-      fetchData();
     } catch (error) {
       toast.error('Failed to delete vehicle');
     }
@@ -260,4 +240,3 @@ const Vehicles = () => {
 };
 
 export default Vehicles;
-
